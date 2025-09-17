@@ -101,3 +101,4 @@ shareBtn.addEventListener('click', async () => {
         showFeedback("Web Share API not supported in this browser.", true);
     }
 });
+
