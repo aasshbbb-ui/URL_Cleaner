@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>URL Cleaner</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <h1>URL Cleaner 🌐</h1>
+
+        <h2>Original URL</h2>
+        <textarea id="originalUrl" rows="4" placeholder="Paste URL here..."></textarea>
+        <button id="pasteBtn">Paste from Clipboard</button>
+        <button id="extractBtn">Extract Clean URL</button>
+
+        <hr>
+
+        <h2>Cleaned URL</h2>
+        <textarea id="cleanedUrl" rows="4" placeholder="Cleaned URL will appear here..." readonly></textarea>
+        <button id="copyBtn">Copy Cleaned URL</button>
+        <button id="shareBtn">Share Cleaned URL</button>
+        
+        <p id="feedback" class="feedback-msg"></p>
+    </div>
+    
+    <script src="script.js"></script>
+</body>
+</html>
