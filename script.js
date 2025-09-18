@@ -1,4 +1,3 @@
-// For Vercel (api/expand.js) or Netlify with minor wrapper changes
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method Not Allowed' });
   const { url } = req.body || {};
@@ -27,3 +26,4 @@ export default async function handler(req, res) {
     return res.status(500).json({ error: 'Failed to expand URL' });
   }
 }
+
