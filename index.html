@@ -1,30 +1,247 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>URL Cleaner</title>
-    <link rel="stylesheet" href="style.css">
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>URL Cleaner & Expander</title>
+<style>
+  :root{
+    --bg:#f6f8fb; --card:#ffffff; --accent:#2b6cb0; --muted:#6b7280;
+    --success:#059669; --danger:#dc2626; --radius:10px;
+  }
+  body{font-family:Inter,system-ui,Arial; margin:24px; background:var(--bg); color:#111;}
+  .card{background:var(--card); border-radius:var(--radius); padding:18px; box-shadow:0 6px 18px rgba(20,23,33,0.06); max-width:900px; margin:auto;}
+  h1{margin:0 0 12px 0; font-size:18px;}
+  label{display:block; font-weight:600; margin-bottom:6px;}
+  input[type="text"], textarea{
+    width:100%; padding:10px 12px; border:1px solid #e6e9ef; border-radius:8px; font-size:14px;
+  }
+  .row{display:flex; gap:8px; flex-wrap:wrap; margin-top:8px;}
+  button{background:var(--accent); color:white; border:0; padding:9px 12px; border-radius:8px; cursor:pointer; font-weight:600;}
+  button.secondary{background:#eef2ff; color:var(--accent); border:1px solid #dbeafe;}
+  button.ghost{background:transparent; color:var(--muted); border:1px dashed #e6e9ef;}
+  .small{padding:7px 10px; font-size:13px;}
+  .status{margin-top:10px; color:var(--muted); font-size:13px;}
+  .actions{display:flex; gap:8px; align-items:center; margin-top:12px;}
+  @media(min-width:720px){ .two{display:flex; gap:16px} .pane{flex:1} }
+</style>
 </head>
 <body>
-    <div class="container">
-        <h1>URL Cleaner 🌐</h1>
+  <div class="card" role="main" aria-labelledby="title">
+    <h1 id="title">URL Cleaner & Expander</h1>
 
-        <h2>Original URL</h2>
-        <textarea id="originalUrl" rows="4" placeholder="Paste URL here..."></textarea>
-        <button id="pasteBtn">Paste from Clipboard</button>
-        <button id="extractBtn">Extract Clean URL</button>
+    <div class="two">
+      <div class="pane">
+        <label for="orig">Original URL</label>
+        <input id="orig" type="text" placeholder="Paste a URL or use the Paste & Expand button" aria-label="Original URL"/>
+        <div class="row" style="margin-top:8px">
+          <button id="pasteExpand" class="small">📋 Paste & Expand</button>
+          <button id="expand" class="small secondary">🔎 Expand (manual)</button>
+          <button id="extract" class="small ghost">✂️ Extract before "?"</button>
+        </div>
+      </div>
 
-        <hr>
-
-        <h2>Cleaned URL</h2>
-        <textarea id="cleanedUrl" rows="4" placeholder="Cleaned URL will appear here..." readonly></textarea>
-        <button id="copyBtn">Copy Cleaned URL</button>
-        <button id="shareBtn">Share Cleaned URL</button>
-        
-        <p id="feedback" class="feedback-msg"></p>
+      <div class="pane">
+        <label for="clean">Cleaned URL (result)</label>
+        <input id="clean" type="text" readonly aria-live="polite" placeholder="Cleaned URL will appear here" />
+        <div class="actions">
+          <button id="share" class="small">📤 Share</button>
+          <button id="copy" class="small secondary">📋 Copy</button>
+          <button id="clear" class="small ghost">🧹 Clear</button>
+        </div>
+      </div>
     </div>
-    
-    <script src="script.js"></script>
+
+    <div id="status" class="status" role="status" aria-atomic="true">Ready.</div>
+  </div>
+
+<script>
+/* Helper utilities */
+const $ = id => document.getElementById(id);
+const statusEl = $('status');
+const origEl = $('orig');
+const cleanEl = $('clean');
+
+function setStatus(msg, level='info'){
+  statusEl.textContent = msg;
+  statusEl.style.color = level === 'error' ? 'var(--danger)' : (level === 'success' ? 'var(--success)' : 'var(--muted)');
+}
+
+function isProbablyUrl(s){
+  try { 
+    new URL(s);
+    return true;
+  } catch(e){ 
+    // quick regex fallback: contains dot and no spaces
+    return /\S+\.\S+/.test(s);
+  }
+}
+
+/* Copy to clipboard with fallback */
+async function copyText(text){
+  if(!text) return false;
+  try {
+    if(navigator.clipboard && navigator.clipboard.writeText){
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+    // fallback
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    ta.remove();
+    return true;
+  } catch(e){
+    console.warn('copy failed', e);
+    return false;
+  }
+}
+
+/* Expand URL - attempt client side, then server fallback */
+async function expandUrl(url){
+  setStatus('Expanding URL...', 'info');
+
+  // Normalise whitespace
+  url = url.trim();
+  if(!isProbablyUrl(url)) {
+    setStatus('Not a valid URL.', 'error');
+    throw new Error('Invalid URL');
+  }
+
+  // 1) Try client-side HEAD then GET (best-effort, may fail due to CORS)
+  try {
+    // try HEAD first (safer)
+    const head = await fetch(url, { method: 'HEAD', redirect: 'follow' });
+    if (head && head.url && head.url !== 'about:blank') {
+      // head.url is final URL in many browsers when CORS allows it
+      setStatus('Expanded (client).', 'success');
+      return head.url;
+    }
+  } catch(e){ /* ignore, fallback to GET or server */ }
+
+  try {
+    const resp = await fetch(url, { method:'GET', redirect:'follow' });
+    if(resp && resp.url){
+      setStatus('Expanded (client via GET).', 'success');
+      return resp.url;
+    }
+  } catch(e){
+    console.warn('client expand failed', e);
+  }
+
+  // 2) Fallback: call serverless endpoint /api/expand
+  try {
+    // NOTE: you must deploy a server endpoint (see server code below)
+    const res = await fetch('/api/expand', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url })
+    });
+    const data = await res.json();
+    if(res.ok && data.finalUrl){
+      setStatus('Expanded (server).', 'success');
+      return data.finalUrl;
+    } else {
+      console.warn('server expand response', data);
+      throw new Error(data.error || 'server failed to expand');
+    }
+  } catch(err){
+    setStatus('Could not expand URL (CORS or server missing). Using original.', 'error');
+    console.warn('expand fallback error', err);
+    return url;
+  }
+}
+
+/* Extract before question mark and normalize */
+function extractBeforeQuestion(raw){
+  if(!raw) return '';
+  // Remove whitespace around
+  raw = raw.trim();
+  // split on first question mark
+  const idx = raw.indexOf('?');
+  let candidate = idx === -1 ? raw : raw.substring(0, idx);
+  // try to normalize via URL class
+  try {
+    const u = new URL(candidate);
+    return u.href;
+  } catch(e){
+    // If not absolute, try to guess (leave as-is)
+    return candidate;
+  }
+}
+
+/* Event handlers */
+$('pasteExpand').addEventListener('click', async () => {
+  setStatus('Reading clipboard...', 'info');
+  try {
+    const text = await navigator.clipboard.readText();
+    if(!text){ setStatus('Clipboard empty.', 'error'); return; }
+    origEl.value = text.trim();
+    const final = await expandUrl(text);
+    origEl.value = final;
+    setStatus('Pasted and expanded.', 'success');
+  } catch(err){
+    setStatus('Failed to read clipboard: permission denied or not secure origin.', 'error');
+    console.error(err);
+  }
+});
+
+$('expand').addEventListener('click', async () => {
+  const url = origEl.value.trim();
+  if(!url){ setStatus('Enter a URL first.', 'error'); return; }
+  try {
+    const final = await expandUrl(url);
+    origEl.value = final;
+    setStatus('Expansion complete.', 'success');
+  } catch(e){
+    setStatus('Expansion failed.', 'error');
+  }
+});
+
+$('extract').addEventListener('click', () => {
+  const before = extractBeforeQuestion(origEl.value);
+  if(!before) { setStatus('Nothing to extract.', 'error'); return; }
+  cleanEl.value = before;
+  setStatus('Extracted clean URL.', 'success');
+});
+
+$('copy').addEventListener('click', async () => {
+  const text = cleanEl.value.trim();
+  if(!text){ setStatus('Nothing to copy.', 'error'); return; }
+  const ok = await copyText(text);
+  setStatus(ok ? 'Copied to clipboard.' : 'Copy failed.', ok ? 'success' : 'error');
+});
+
+$('share').addEventListener('click', async () => {
+  const text = cleanEl.value.trim();
+  if(!text){ setStatus('Nothing to share.', 'error'); return; }
+  if(navigator.share){
+    try {
+      await navigator.share({ title: 'Share URL', text: text, url: text });
+      setStatus('Shared successfully.', 'success');
+    } catch(err){
+      setStatus('Share cancelled or failed.', 'error');
+    }
+  } else {
+    // Fallback: copy to clipboard and inform user
+    const ok = await copyText(text);
+    setStatus(ok ? 'Share not available — copied to clipboard. Paste into your app.' : 'Share unavailable and copy failed.', ok ? 'success' : 'error');
+  }
+});
+
+$('clear').addEventListener('click', () => { origEl.value=''; cleanEl.value=''; setStatus('Cleared.'); });
+
+/* Optional: allow pressing Enter in original to extract quickly */
+origEl.addEventListener('keydown', (e) => {
+  if(e.key === 'Enter' && (e.metaKey || e.ctrlKey)){
+    // Ctrl/Cmd + Enter -> extract
+    cleanEl.value = extractBeforeQuestion(origEl.value);
+    setStatus('Extracted clean URL via shortcut.', 'success');
+  }
+});
+</script>
 </body>
 </html>
